@@ -52,7 +52,7 @@ class FakeGateway:
         return result
 
 
-def make_client(tmp_path: Path) -> tuple[TestClient, FakeGateway]:
+def make_client(tmp_path: Path, *, raise_server_exceptions: bool = True) -> tuple[TestClient, FakeGateway]:
     gateway = FakeGateway()
     settings = Settings(
         api_keys=("key-a", "key-b"),
@@ -63,7 +63,7 @@ def make_client(tmp_path: Path) -> tuple[TestClient, FakeGateway]:
         default_system_prompt="Be useful.",
         cache_type="local",
     )
-    return TestClient(create_app(settings, gateway)), gateway
+    return TestClient(create_app(settings, gateway), raise_server_exceptions=raise_server_exceptions), gateway
 
 
 def test_chat_persists_turns_and_keeps_context(tmp_path: Path) -> None:
@@ -106,12 +106,13 @@ def test_cache_hit_has_no_key_and_no_fallbacks(tmp_path: Path) -> None:
     assert metadata["fallback_attempts"] == 0
 
 
-def test_failure_hook_uses_the_next_key_and_all_failed_is_503(tmp_path: Path) -> None:
+@pytest.mark.parametrize("status", [429, 500, 502, 503])
+def test_failure_hook_uses_the_next_key_and_all_failed_is_503(tmp_path: Path, status: int) -> None:
     client, _ = make_client(tmp_path)
     with client:
         fallback = client.post(
             "/chat",
-            headers={"X-Simulate-Failure": "key_1=429"},
+            headers={"X-Simulate-Failure": f"key_1={status}"},
             json={"session_id": "failover", "message": "hello"},
         )
         assert fallback.status_code == 200
@@ -195,3 +196,23 @@ def test_actual_provider_errors_trigger_fallback(tmp_path, code):
     assert response.status_code == 200
     assert response.json()["metadata"]["key_id"] == "key_2"
     assert response.json()["metadata"]["fallback_attempts"] == 1
+
+
+def test_nonretryable_error_does_not_call_backup_keys(tmp_path):
+    client, gateway = make_client(tmp_path, raise_server_exceptions=False)
+    attempted = []
+
+    class BadRequest(Exception):
+        status_code = 400
+
+    async def bad_request(**kwargs):
+        attempted.append(kwargs["key"].id)
+        raise BadRequest("invalid provider request")
+
+    gateway.complete = bad_request
+    with client:
+        response = client.post("/chat", json={"session_id": "bad-provider-request", "message": "hello"})
+        assert response.status_code == 500
+        assert response.json() == {"detail": "internal server error"}
+        assert client.get("/sessions/bad-provider-request/messages").status_code == 404
+    assert attempted == ["key_1"]

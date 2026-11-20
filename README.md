@@ -155,7 +155,7 @@ Read the project in this order and trace the example “My name is Dishant”.
 2. `frontend/src/api.ts`: `fetch` turns your message into a JSON HTTP request. Only the new message and session ID travel to the backend. Keys stay on the backend because anything bundled into browser JavaScript can be read by visitors.
 3. `backend/app/schemas.py`: Pydantic checks the JSON before the endpoint runs. A blank message receives 422. Validating at the server matters even when the browser already checks input, because other clients can call the API directly.
 4. `backend/app/main.py`: the endpoint reads prior history and places a system instruction before it. On “What is my name?” the model receives the earlier user message and assistant answer too. An LLM call has no memory unless we supply it.
-5. `backend/app/llm.py`: LiteLLM translates the common message format into the provider's API. The application key pool currently handles ordered failover and the simulation header; LiteLLM handles calls and caching. This distinction matters: native LiteLLM Router fallback is a remaining strict-assignment compliance task.
+5. `backend/app/llm.py`: LiteLLM translates the common message format into the provider's API. Its Router owns ordered fallback: each key has a named route, and a failed primary route falls back to the backups. An adapter around one attempt injects simulated errors and records metadata. A `ContextVar` keeps that state separate for simultaneous requests, so one user's simulation cannot affect another user.
 6. `backend/app/database.py`: after success, a transaction saves both messages. If an insert fails, rollback prevents half a turn being stored. SQL placeholders keep user text separate from SQL commands. The session index lets SQLite find a chat's messages efficiently.
 7. The JSON response returns to React, which shows the answer and that request's metadata. Input tokens include system + history + new text; output tokens describe only the new answer. Longer conversations therefore increase input tokens even though the UI sends just one new message.
 
@@ -197,4 +197,10 @@ GitHub Actions now runs backend tests, a frontend production build, and both Doc
 4. In `/docs`, send a request with `key_1=429`, then one with `*=429`; explain the winning key and clean 503 (40 seconds).
 5. Show the history endpoint and explain why failed turns are absent (20 seconds).
 
-Record your own narration explaining these choices. Remaining submission steps are native LiteLLM fallback compliance, live credential verification, public deployment, and your demo recording.
+Record your own narration explaining these choices. Remaining submission steps are live credential verification, public deployment, and your demo recording.
+
+### Native fallback and the demo controls
+
+The key pool configures LiteLLM Router with one route per key (`key_1`, `key_2`, ...), zero retries on the same key, and an ordered fallback list. Router invokes a small attempt adapter that calls the LiteLLM gateway. Retryable failures move to the next route; request errors such as HTTP 400 do not send more provider requests. The Router attempt hook is version-specific, so the LiteLLM version is pinned and tested.
+
+The UI's expandable **Test failover** control sends the required header. It shows which key answered and how many keys failed beside every response. Choose “Normal request” before checking cache behavior. The dropdown does not create mock answers: successful failover needs a valid provider key. Local Docker persistence and HTTP checks have passed; real-provider verification still requires your `.env` keys.

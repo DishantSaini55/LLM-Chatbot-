@@ -20,10 +20,14 @@ export async function sendChat(
   sessionId: string,
   message: string,
   systemPrompt: string,
+  simulatedFailure = "",
 ): Promise<ChatResponse> {
   const response = await fetch(`${baseUrl}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(simulatedFailure ? { "X-Simulate-Failure": simulatedFailure } : {}),
+    },
     body: JSON.stringify({
       session_id: sessionId,
       message,

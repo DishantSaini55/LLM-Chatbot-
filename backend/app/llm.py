@@ -1,14 +1,14 @@
 """LiteLLM integration and deterministic key failover.
 
-LiteLLM owns provider-specific request formatting and response caching.  This
-small key-pool wrapper owns assignment-specific observability: stable key IDs,
-the number of failed keys, and a simulation hook that never touches a provider.
+LiteLLM owns provider calls, caching, and fallback traversal. A request-scoped
+adapter supplies stable key IDs, failure counts, and simulated provider errors.
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Mapping, Protocol
 
 
@@ -41,6 +41,12 @@ class ChatResult:
 
 class AllProvidersUnavailable(Exception):
     """Raised only after every configured key had a retryable failure."""
+
+
+class SimulatedProviderError(Exception):
+    def __init__(self, status: int):
+        super().__init__("simulated provider failure")
+        self.status_code = status
 
 
 class Gateway(Protocol):
@@ -138,6 +144,18 @@ def is_retryable_provider_error(error: Exception) -> bool:
     return "quota" in str(error).lower()
 
 
+@dataclass
+class RoutingState:
+    simulated_failures: dict[str, int]
+    failed_keys: int = 0
+    key_id: str | None = None
+    result: LLMResult | None = None
+    fatal: Exception | None = None
+
+
+_routing_state: ContextVar[RoutingState] = ContextVar("chat_routing_state")
+
+
 class KeyPool:
     def __init__(self, keys: tuple[str, ...], gateway: Gateway) -> None:
         self.keys = tuple(
@@ -145,56 +163,94 @@ class KeyPool:
             for index, secret in enumerate(keys, start=1)
         )
         self.gateway = gateway
+        self._router = None
+
+    def _build_router(self):
+        """Bridge the gateway into LiteLLM's native async fallback machinery.
+
+        The protected attempt hook is version-specific, so LiteLLM is pinned and
+        integration-tested. The Router owns fallback traversal; the hook adds
+        request-scoped simulation and observability around one provider attempt.
+        """
+        import litellm
+
+        pool = self
+        key_map = {key.id: key for key in self.keys}
+
+        class ObservableRouter(litellm.Router):
+            async def _acompletion(self, model, messages, **kwargs):
+                state = _routing_state.get()
+                if state.fatal is not None:
+                    raise state.fatal
+                key = key_map[model]
+                code = state.simulated_failures.get(key.id, state.simulated_failures.get("*"))
+                try:
+                    if code is not None:
+                        raise SimulatedProviderError(code)
+                    result = await pool.gateway.complete(
+                        messages=messages, key=key, bypass_cache=bool(state.simulated_failures)
+                    )
+                except Exception as error:
+                    if not is_retryable_provider_error(error):
+                        state.fatal = error
+                        raise
+                    state.failed_keys += 1
+                    # Normalize quota/provider errors so Router can apply its
+                    # native fallback policy consistently across providers.
+                    raise litellm.RateLimitError(
+                        message="provider unavailable", model=model, llm_provider="gateway"
+                    ) from error
+                state.key_id, state.result = key.id, result
+                # Router adds fallback headers to a ModelResponse. The original
+                # gateway result retains exact usage/cache metadata for our API.
+                return litellm.ModelResponse(
+                    model=result.model,
+                    choices=[{"message": {"role": "assistant", "content": result.text}}],
+                    usage={"prompt_tokens": result.input_tokens, "completion_tokens": result.output_tokens, "total_tokens": result.input_tokens + result.output_tokens},
+                )
+
+        model = getattr(self.gateway, "model", "openai/gpt-4o-mini")
+        ids = list(key_map)
+        return ObservableRouter(
+            model_list=[{"model_name": key.id, "litellm_params": {"model": model, "api_key": key.secret}} for key in self.keys],
+            fallbacks=[{ids[0]: ids[1:]}] if ids else [],
+            num_retries=0,
+            max_fallbacks=max(1, len(ids)),
+            disable_cooldowns=True,
+            timeout=30,
+        )
 
     async def chat(
         self,
         messages: list[dict[str, str]],
         simulated_failures: dict[str, int],
     ) -> ChatResult:
-        fallback_attempts = 0
         start = time.perf_counter()
-
-        for key in self.keys:
-            simulated_status = simulated_failures.get(key.id, simulated_failures.get("*"))
-            if simulated_status is not None:
-                fallback_attempts += 1
-                continue
-
+        if not self.keys:
+            raise AllProvidersUnavailable("no providers configured")
+        if self._router is None:
+            self._router = self._build_router()
+        state = RoutingState(simulated_failures=simulated_failures)
+        token = _routing_state.set(state)
+        try:
             try:
-                result = await self.gateway.complete(
-                    messages=messages,
-                    key=key,
-                    bypass_cache=bool(simulated_failures),
-                )
+                await self._router.acompletion(model=self.keys[0].id, messages=messages)
             except Exception as error:
-                if is_retryable_provider_error(error):
-                    fallback_attempts += 1
-                    continue
-                raise
-
-            latency_ms = round((time.perf_counter() - start) * 1000)
-            if result.cache_hit:
-                # LiteLLM returned before contacting a provider.  Cache hits do
-                # not belong to any key and have no fallback attempts.
-                return ChatResult(
-                    text=result.text,
-                    model=result.model,
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
-                    cache_hit=True,
-                    key_id=None,
-                    fallback_attempts=0,
-                    latency_ms=latency_ms,
-                )
+                if state.fatal is not None:
+                    raise state.fatal
+                raise AllProvidersUnavailable("all configured providers failed") from error
+            result = state.result
+            if result is None:
+                raise AllProvidersUnavailable("provider returned no response")
             return ChatResult(
                 text=result.text,
                 model=result.model,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
-                cache_hit=False,
-                key_id=key.id,
-                fallback_attempts=fallback_attempts,
-                latency_ms=latency_ms,
+                cache_hit=result.cache_hit,
+                key_id=None if result.cache_hit else state.key_id,
+                fallback_attempts=0 if result.cache_hit else state.failed_keys,
+                latency_ms=round((time.perf_counter() - start) * 1000),
             )
-
-        raise AllProvidersUnavailable("all configured providers failed")
+        finally:
+            _routing_state.reset(token)

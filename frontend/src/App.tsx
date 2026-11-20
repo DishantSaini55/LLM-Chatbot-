@@ -34,6 +34,8 @@ function AssistantMetadata({ metadata }: { metadata: Metadata }) {
         <dt>Output tokens</dt>
         <dd data-testid="meta-output-tokens">{metadata.output_tokens}</dd>
       </div>
+      <div><dt>Answering key</dt><dd>{metadata.key_id ?? "No key (cached)"}</dd></div>
+      <div><dt>Failed keys</dt><dd>{metadata.fallback_attempts}</dd></div>
     </dl>
   );
 }
@@ -44,6 +46,7 @@ export default function App() {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [simulatedFailure, setSimulatedFailure] = useState("");
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -60,7 +63,7 @@ export default function App() {
     setIsSending(true);
 
     try {
-      const response = await sendChat(sessionId, submittedMessage, systemPrompt);
+      const response = await sendChat(sessionId, submittedMessage, systemPrompt, simulatedFailure);
       setMessages((current) => [
         ...current,
         {
@@ -120,6 +123,17 @@ export default function App() {
       </section>
 
       <form className="composer" onSubmit={submit}>
+        <details className="demo-controls">
+          <summary>Test failover</summary>
+          <label htmlFor="failure-mode">Simulate a provider failure</label>
+          <select id="failure-mode" value={simulatedFailure} disabled={isSending} onChange={(event) => setSimulatedFailure(event.target.value)}>
+            <option value="">Normal request</option>
+            <option value="key_1=429">First key rate-limited (429)</option>
+            <option value="key_1=500">First key unavailable (500)</option>
+            <option value="*=429">All keys rate-limited</option>
+          </select>
+          <p>Simulation requires server support. Test requests bypass the cache; a successful fallback still needs a valid backup key.</p>
+        </details>
         <label htmlFor="system-prompt">System prompt <span>(optional)</span></label>
         <input
           id="system-prompt"
