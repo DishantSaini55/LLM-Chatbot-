@@ -138,6 +138,7 @@ curl -X POST http://localhost:8000/chat \
 - LiteLLM for provider-agnostic asynchronous model calls and response caching
 - Docker Compose, multi-stage images, and an Nginx static frontend runtime
 - pytest plus a fake LiteLLM gateway for deterministic backend tests
+- Codex was used to assist implementation and verification.
 
 ## Bonus features (if any)
 
@@ -145,3 +146,55 @@ curl -X POST http://localhost:8000/chat \
 - Inline request metadata cards in the UI
 - Deterministic failure simulation that does not consume real key quota
 - Focused automated tests for the critical resilience behavior
+
+## Learning walkthrough: follow one message
+
+Read the project in this order and trace the example “My name is Dishant”.
+
+1. `frontend/src/App.tsx`: React state holds the text you type and the messages on screen. The submit handler clears the input, disables duplicate sends, and calls `sendChat`. State updates cause React to render the new conversation.
+2. `frontend/src/api.ts`: `fetch` turns your message into a JSON HTTP request. Only the new message and session ID travel to the backend. Keys stay on the backend because anything bundled into browser JavaScript can be read by visitors.
+3. `backend/app/schemas.py`: Pydantic checks the JSON before the endpoint runs. A blank message receives 422. Validating at the server matters even when the browser already checks input, because other clients can call the API directly.
+4. `backend/app/main.py`: the endpoint reads prior history and places a system instruction before it. On “What is my name?” the model receives the earlier user message and assistant answer too. An LLM call has no memory unless we supply it.
+5. `backend/app/llm.py`: LiteLLM translates the common message format into the provider's API. The application key pool currently handles ordered failover and the simulation header; LiteLLM handles calls and caching. This distinction matters: native LiteLLM Router fallback is a remaining strict-assignment compliance task.
+6. `backend/app/database.py`: after success, a transaction saves both messages. If an insert fails, rollback prevents half a turn being stored. SQL placeholders keep user text separate from SQL commands. The session index lets SQLite find a chat's messages efficiently.
+7. The JSON response returns to React, which shows the answer and that request's metadata. Input tokens include system + history + new text; output tokens describe only the new answer. Longer conversations therefore increase input tokens even though the UI sends just one new message.
+
+Each session has an asynchronous lock around reading history, calling the model, and saving the turn. Without it, two overlapping requests could both answer using the same old history. This protection assumes one backend worker: run one Uvicorn worker with this SQLite/local-cache deployment.
+
+### Run on your Windows machine without Docker
+
+From the repository root, copy `.env.example` to `.env` and edit your keys locally. Set `DATABASE_URL=sqlite:///./data/app.db` in `.env` for local use; `/data/app.db` is the Linux container path.
+
+```powershell
+Copy-Item .env.example .env
+uv sync --project backend --frozen --all-groups
+uv run --project backend uvicorn app.main:app --app-dir backend --env-file .env --reload --port 8000
+```
+
+Open a second terminal:
+
+```powershell
+cd frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+Visit `http://localhost:3000`. `npm.cmd` avoids PowerShell's restriction on npm's `.ps1` wrapper. `/docs` on port 8000 provides an interactive API explorer, including the failure header.
+
+### Deployment preparation
+
+The backend host must run the backend Dockerfile, expose port 8000, and provide a persistent disk mounted at `/data`. Set the variables from `.env.example` in the host's secrets/settings UI. Set `ALLOWED_ORIGINS` to the exact public frontend origin (scheme + hostname, no path). Keep one worker and one backend instance for consistent local caching and session locking.
+
+Build the frontend from its Dockerfile or publish `frontend/dist`. Supply `VITE_API_BASE_URL` with the backend's public HTTPS URL at build time. A value starting with `VITE_` is public; never use that prefix for a secret key. Once URLs exist, enter them in the Live URLs section and run the verification sequence above against those public URLs.
+
+GitHub Actions now runs backend tests, a frontend production build, and both Docker builds on pushes and pull requests. A green build checks packaging; it does not prove that real provider credentials or a cloud disk are configured correctly. Compose uses `.env` by default; `ENV_FILE` can select another backend environment file.
+
+### Two-to-three minute demo script
+
+1. Show the public app and `/health` (20 seconds).
+2. Send your name, then ask the bot to recall it; point out per-reply metadata (35 seconds).
+3. Reload the page and repeat an identical opening question. Show `LLM_CACHE`, preserved token counts, and latency (30 seconds).
+4. In `/docs`, send a request with `key_1=429`, then one with `*=429`; explain the winning key and clean 503 (40 seconds).
+5. Show the history endpoint and explain why failed turns are absent (20 seconds).
+
+Record your own narration explaining these choices. Remaining submission steps are native LiteLLM fallback compliance, live credential verification, public deployment, and your demo recording.

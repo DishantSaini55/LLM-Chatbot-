@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -137,3 +138,60 @@ def test_validation_and_health_contract(tmp_path: Path) -> None:
         }
         bad = client.post("/chat", json={"session_id": "x", "message": "   "})
         assert bad.status_code == 422
+
+
+@pytest.mark.parametrize("payload", [
+    {"session_id": "", "message": "hello"},
+    {"session_id": " " * 3, "message": "hello"},
+    {"session_id": "x" * 129, "message": "hello"},
+    {"session_id": "x", "message": "x" * 4001},
+    {"session_id": "x"},
+])
+def test_invalid_input_never_reaches_provider(tmp_path, payload):
+    client, gateway = make_client(tmp_path)
+    with client:
+        assert client.post("/chat", json=payload).status_code == 422
+    assert gateway.seen == []
+
+
+def test_failed_followup_does_not_change_existing_history(tmp_path):
+    client, _ = make_client(tmp_path)
+    with client:
+        client.post("/chat", json={"session_id": "existing", "message": "hello"})
+        before = client.get("/sessions/existing/messages").json()
+        failed = client.post("/chat", json={"session_id": "existing", "message": "followup"}, headers={"X-Simulate-Failure": "*=429"})
+        assert failed.status_code == 503
+        assert client.get("/sessions/existing/messages").json() == before
+
+
+def test_system_prompt_persists_and_sessions_are_isolated(tmp_path):
+    client, gateway = make_client(tmp_path)
+    with client:
+        client.post("/chat", json={"session_id": "a", "message": "  hello  ", "system_prompt": "Use examples."})
+        client.post("/chat", json={"session_id": "a", "message": "again"})
+        assert gateway.seen[-1][1][0]["content"] == "Use examples."
+        assert gateway.seen[-1][1][1]["content"] == "hello"
+        client.post("/chat", json={"session_id": "b", "message": "new"})
+        assert len(gateway.seen[-1][1]) == 2
+        assert gateway.seen[-1][1][0]["content"] == "Be useful."
+
+
+@pytest.mark.parametrize("code", [429, 500, 502, 503])
+def test_actual_provider_errors_trigger_fallback(tmp_path, code):
+    client, gateway = make_client(tmp_path)
+    original = gateway.complete
+
+    class ProviderFailure(Exception):
+        status_code = code
+
+    async def failing_first_key(**kwargs):
+        if kwargs["key"].id == "key_1":
+            raise ProviderFailure("upstream failed")
+        return await original(**kwargs)
+
+    gateway.complete = failing_first_key
+    with client:
+        response = client.post("/chat", json={"session_id": "real-failure", "message": "hello"})
+    assert response.status_code == 200
+    assert response.json()["metadata"]["key_id"] == "key_2"
+    assert response.json()["metadata"]["fallback_attempts"] == 1

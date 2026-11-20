@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
+from weakref import WeakValueDictionary
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,6 +57,9 @@ def create_app(settings: Settings | None = None, gateway: Gateway | None = None)
     database = Database(settings.database_url)
     gateway = gateway or LiteLLMGateway(settings.model, settings.cache_type)
     pool = KeyPool(settings.api_keys, gateway)
+    # Single-worker deployment: serialize each session's read/call/write cycle.
+    # Weak references release idle locks without growing a permanent session map.
+    session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -101,6 +106,13 @@ def create_app(settings: Settings | None = None, gateway: Gateway | None = None)
         payload: ChatRequest,
         request: Request,
         simulate_failure: str | None = Header(default=None, alias="X-Simulate-Failure"),
+    ) -> ChatResponse:
+        lock = session_locks.setdefault(payload.session_id, asyncio.Lock())
+        async with lock:
+            return await process_chat(payload, request, simulate_failure)
+
+    async def process_chat(
+        payload: ChatRequest, request: Request, simulate_failure: str | None
     ) -> ChatResponse:
         db: Database = request.app.state.database
         app_settings: Settings = request.app.state.settings

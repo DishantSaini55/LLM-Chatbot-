@@ -9,6 +9,7 @@ frontend/dist/
 .npm-cache/
 .uv-cache/
 .test-tmp/
+.test-next/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

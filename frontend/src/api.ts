@@ -33,10 +33,16 @@ export async function sendChat(
 
   const body = (await response.json().catch(() => null)) as
     | ChatResponse
-    | { detail?: string }
+    | { detail?: unknown }
     | null;
   if (!response.ok) {
-    throw new Error(body && "detail" in body ? body.detail ?? "Request failed" : "Request failed");
+    const detail = body && "detail" in body ? body.detail : null;
+    const explanation = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((item) => item.msg ?? "Invalid input").join("; ")
+        : "Unable to complete your request. Please try again.";
+    throw new Error(explanation);
   }
   return body as ChatResponse;
 }

@@ -88,6 +88,8 @@ class LiteLLMGateway:
             model=self.model,
             messages=messages,
             api_key=key.secret,
+            timeout=30,
+            num_retries=0,
             # Failure simulation intentionally bypasses cached values: it is a
             # demonstration of provider failover, not a cache test.
             caching=not bypass_cache,
@@ -99,7 +101,7 @@ class LiteLLMGateway:
         usage = getattr(response, "usage", None)
         return LLMResult(
             text=text,
-            model=getattr(response, "model", None) or self.model,
+            model=self.model,
             input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             cache_hit=self._is_cache_hit(response),
