@@ -28,7 +28,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             api_keys=_csv(os.getenv("LLM_API_KEYS", "")),
-            model=os.getenv("LLM_MODEL", "gemini/gemini-2.0-flash"),
+            model=os.getenv("LLM_MODEL", "gemini/gemini-3.1-flash-lite"),
             database_url=os.getenv("DATABASE_URL", "sqlite:////data/app.db"),
             allowed_origins=_csv(os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")),
             enable_failure_simulation=os.getenv("ENABLE_FAILURE_SIMULATION", "false").lower()

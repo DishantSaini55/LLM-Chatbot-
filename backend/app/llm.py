@@ -138,7 +138,7 @@ def provider_status(error: Exception) -> int | None:
 
 def is_retryable_provider_error(error: Exception) -> bool:
     status = provider_status(error)
-    if status == 429 or (status is not None and 500 <= status <= 599):
+    if status in (408, 429) or isinstance(error, TimeoutError) or (status is not None and 500 <= status <= 599):
         return True
     # Some providers represent exhausted quota without a useful HTTP code.
     return "quota" in str(error).lower()

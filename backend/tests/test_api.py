@@ -177,7 +177,7 @@ def test_system_prompt_persists_and_sessions_are_isolated(tmp_path):
         assert gateway.seen[-1][1][0]["content"] == "Be useful."
 
 
-@pytest.mark.parametrize("code", [429, 500, 502, 503])
+@pytest.mark.parametrize("code", [408, 429, 500, 502, 503])
 def test_actual_provider_errors_trigger_fallback(tmp_path, code):
     client, gateway = make_client(tmp_path)
     original = gateway.complete
