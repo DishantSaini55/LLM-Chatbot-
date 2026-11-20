@@ -130,10 +130,12 @@ def create_app(settings: Settings | None = None, gateway: Gateway | None = None)
         # A system prompt supplied later intentionally becomes the prompt for
         # future turns in the same session.  It is stored separately, never in
         # the public messages history endpoint.
+        # Omitted instructions preserve a resumed session's prompt. An explicit
+        # empty string resets it, so clearing the settings field really works.
         system_prompt = (
-            payload.system_prompt
-            or db.get_system_prompt(payload.session_id)
-            or app_settings.default_system_prompt
+            (payload.system_prompt or app_settings.default_system_prompt)
+            if payload.system_prompt is not None
+            else db.get_system_prompt(payload.session_id) or app_settings.default_system_prompt
         )
         history = db.get_messages(payload.session_id)
         llm_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]

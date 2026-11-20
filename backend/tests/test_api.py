@@ -216,3 +216,13 @@ def test_nonretryable_error_does_not_call_backup_keys(tmp_path):
         assert response.json() == {"detail": "internal server error"}
         assert client.get("/sessions/bad-provider-request/messages").status_code == 404
     assert attempted == ["key_1"]
+
+
+def test_explicit_empty_instructions_reset_to_default(tmp_path):
+    client, gateway = make_client(tmp_path)
+    with client:
+        client.post("/chat", json={"session_id": "reset", "message": "first", "system_prompt": "Use short answers."})
+        client.post("/chat", json={"session_id": "reset", "message": "second"})
+        assert gateway.seen[-1][1][0]["content"] == "Use short answers."
+        client.post("/chat", json={"session_id": "reset", "message": "third", "system_prompt": ""})
+        assert gateway.seen[-1][1][0]["content"] == "Be useful."

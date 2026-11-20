@@ -146,6 +146,19 @@ curl -X POST http://localhost:8000/chat \
 - Inline request metadata cards in the UI
 - Deterministic failure simulation that does not consume real key quota
 - Focused automated tests for the critical resilience behavior
+- Responsive workspace with light/dark themes and a message composer that stays visible
+- Searchable history shortcuts (up to 30 conversations in this browser), backed by SQLite history retrieval
+- Markdown replies with tables and code blocks; raw HTML and remote images are not rendered
+- Copy replies and export the current conversation as a Markdown download
+- Prompt starter cards, assistant-instruction presets, and editable retry drafts
+- Actual backend readiness indicator (polled every 30 seconds; it does not claim provider availability)
+- One-request failure simulation with a visible warning that resets after sending
+
+### Frontend feature checks
+
+`cd frontend` then `npm run test:e2e` runs browser tests against mocked API responses, without using your real keys or credits. Local tests use installed Chrome; CI installs Chromium. The tests cover Markdown and required metadata, copy/export, saved conversation retrieval, theme persistence, one-request simulation, retry drafts, and the mobile composer/navigation. Run `npm run build` for the TypeScript and production bundle checks.
+
+Every page load still starts a new session. Explicitly selecting a sidebar conversation resumes its stored session. The browser stores session IDs and titles, while full message history remains in SQLite. Old sessions created before these shortcuts were added are not automatically listed. There is no authentication in this assignment: use your own device for chat history and do not expose a production deployment with sensitive conversations.
 
 ## Learning walkthrough: follow one message
 

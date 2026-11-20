@@ -16,10 +16,24 @@ export type ChatResponse = {
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
+export async function getHealth(signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`${baseUrl}/health`, { signal });
+  if (!response.ok) throw new Error("Backend is unavailable.");
+  if ((await response.json()).status !== "ok") throw new Error("Backend is not ready.");
+}
+
+export async function getHistory(sessionId: string): Promise<{
+  messages: { role: "user" | "assistant"; content: string; metadata?: Metadata }[];
+}> {
+  const response = await fetch(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/messages`);
+  if (!response.ok) throw new Error(response.status === 404 ? "This conversation is no longer available on the server." : "Could not load conversation. Please try again.");
+  return response.json();
+}
+
 export async function sendChat(
   sessionId: string,
   message: string,
-  systemPrompt: string,
+  systemPrompt: string | undefined,
   simulatedFailure = "",
 ): Promise<ChatResponse> {
   const response = await fetch(`${baseUrl}/chat`, {
@@ -31,7 +45,7 @@ export async function sendChat(
     body: JSON.stringify({
       session_id: sessionId,
       message,
-      ...(systemPrompt.trim() ? { system_prompt: systemPrompt.trim() } : {}),
+      ...(systemPrompt !== undefined ? { system_prompt: systemPrompt.trim() } : {}),
     }),
   });
 
