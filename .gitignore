@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+backend/*.db
+frontend/node_modules/
+frontend/dist/
+.npm-cache/
+.uv-cache/
+.test-tmp/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
