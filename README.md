@@ -10,6 +10,28 @@ Backend: **not deployed yet**
 
 Before submitting, replace those two placeholders with public URLs that do not require a login.
 
+### Prepared Render deployment
+
+[`render.yaml`](render.yaml) proposes two services from this repository: a static frontend and a single Docker backend with a 1 GB disk mounted at `/data`. No cloud resources have been created yet. The backend plan and disk are billed; review the current [Render pricing](https://render.com/pricing) before applying the Blueprint. The static frontend has no backend compute charge. Model API usage is separate.
+
+1. Connect your own Render account and link `DishantSaini55/LLM-Chatbot-`.
+2. Create a Blueprint from `main`, reviewing its backend plan and disk before approving.
+3. Enter `LLM_API_KEYS` in Render's secret settings. Never put real keys in YAML or Git.
+4. The frontend receives the backend's public URL through a Blueprint environment reference. If Render adds a suffix to the frontend hostname, update `ALLOWED_ORIGINS` in this Blueprint to that exact frontend origin and resync before testing.
+5. Keep one backend instance/worker. Copy the actual public URLs into this README only after both are reachable.
+
+The cloud frontend build refuses missing, local, or non-HTTPS API URLs. This avoids shipping a site that calls a visitor's `localhost`.
+
+```powershell
+# Infrastructure checks; these do not call an LLM provider.
+python scripts/verify_deployment.py --backend https://ACTUAL-API-HOST --frontend https://ACTUAL-FRONTEND-HOST
+
+# Full contract checks, including real provider calls and failover.
+python scripts/verify_deployment.py --backend https://ACTUAL-API-HOST --frontend https://ACTUAL-FRONTEND-HOST --live
+```
+
+The live check prints a verification session ID. Restart the hosted backend and rerun with `--verify-session SESSION_ID` to confirm persistence. Do not use the free backend's ephemeral filesystem for the persistence requirement.
+
 ## Run locally
 
 ### With Docker
