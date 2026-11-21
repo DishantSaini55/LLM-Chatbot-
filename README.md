@@ -10,15 +10,24 @@ Backend: **not deployed yet**
 
 Before submitting, replace those two placeholders with public URLs that do not require a login.
 
-### Prepared Render deployment
+### Free-only deployment preparation
 
-[`render.yaml`](render.yaml) proposes two services from this repository: a static frontend and a single Docker backend with a 1 GB disk mounted at `/data`. No cloud resources have been created yet. The backend plan and disk are billed; review the current [Render pricing](https://render.com/pricing) before applying the Blueprint. The static frontend has no backend compute charge. Model API usage is separate.
+The selected route is Railway's Free plan. No cloud resources have been created yet. It offers limited monthly usage credits and a small persistent volume, rather than unlimited always-on hosting. See the current [Free plan limits](https://docs.railway.com/pricing/free-plan), including trial expiry and volume-retention rules. Do not upgrade to Hobby or add a paid subscription for this deployment. Model-provider usage is separate from hosting.
 
-1. Connect your own Render account and link `DishantSaini55/LLM-Chatbot-`.
-2. Create a Blueprint from `main`, reviewing its backend plan and disk before approving.
-3. Enter `LLM_API_KEYS` in Render's secret settings. Never put real keys in YAML or Git.
-4. The frontend receives the backend's public URL through a Blueprint environment reference. If Render adds a suffix to the frontend hostname, update `ALLOWED_ORIGINS` in this Blueprint to that exact frontend origin and resync before testing.
-5. Keep one backend instance/worker. Copy the actual public URLs into this README only after both are reachable.
+Use one project with two services from `DishantSaini55/LLM-Chatbot-`, branch `main`:
+
+| Setting | Backend service | Frontend service |
+| --- | --- | --- |
+| Source root | `/backend` | `/frontend` |
+| Builder | Existing Dockerfile | Existing Dockerfile |
+| Public target port | `8000` | `80` |
+| Health check | `/health` | `/` |
+| Instances | `1` | `1` |
+| Persistent volume | Free-plan volume mounted at `/data` | None |
+
+Backend variables: set `LLM_API_KEYS` privately; `LLM_MODEL=gemini/gemini-3.1-flash-lite`; `DATABASE_URL=sqlite:////data/app.db`; `PORT=8000`; `ENABLE_FAILURE_SIMULATION=true`; and `LITELLM_CACHE_TYPE=local`. Set `ALLOWED_ORIGINS` to the exact public frontend origin once its URL is generated. Keep backend RAM within the Free plan limit and enable serverless sleeping where the plan supports it.
+
+Frontend variables/build arguments: `VITE_API_BASE_URL` must be the backend's actual public HTTPS URL, `CLOUD_BUILD=true`, and `PORT=80`. Docker declares these build arguments so Railway can pass the values at build time. Redeploy the frontend after changing its API URL. Keep the GitHub repository linked to your own account, and copy both actual public URLs into this README only after verification succeeds.
 
 The cloud frontend build refuses missing, local, or non-HTTPS API URLs. This avoids shipping a site that calls a visitor's `localhost`.
 
@@ -30,7 +39,7 @@ python scripts/verify_deployment.py --backend https://ACTUAL-API-HOST --frontend
 python scripts/verify_deployment.py --backend https://ACTUAL-API-HOST --frontend https://ACTUAL-FRONTEND-HOST --live
 ```
 
-The live check prints a verification session ID. Restart the hosted backend and rerun with `--verify-session SESSION_ID` to confirm persistence. Do not use the free backend's ephemeral filesystem for the persistence requirement.
+The live check prints a verification session ID. Restart the hosted backend and rerun with `--verify-session SESSION_ID` to confirm persistence. Mount the volume before using the app; the container's ephemeral filesystem alone does not satisfy persistence. This project no longer includes the proposed paid Render Blueprint.
 
 ## Run locally
 

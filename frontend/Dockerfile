@@ -6,8 +6,9 @@ RUN npm ci
 
 COPY . ./
 ARG VITE_API_BASE_URL=http://localhost:8000
+ARG CLOUD_BUILD=false
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-RUN npm run build
+RUN if [ "$CLOUD_BUILD" = "true" ]; then node scripts/build-cloud.mjs; else npm run build; fi
 
 FROM nginx:1.27-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
