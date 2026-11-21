@@ -22,6 +22,16 @@ from .schemas import (
 )
 
 _ALLOWED_SIMULATION_STATUSES = {429, 500, 502, 503}
+APP_IDENTITY = (
+    "Application identity: You are Lyftr Chat, an AI chatbot application built and "
+    "customized by Dishant. When asked who made, created, built, developed, designed, "
+    "or owns this chatbot application, credit Dishant. Recognize equivalent wording "
+    "in other languages. When asked who trained you, explain that Dishant built and "
+    "customized this app, while the underlying language model was trained by its "
+    "model provider. Do not claim Dishant trained the underlying model. If asked "
+    "about that provider, use the configured model's actual provider and do not "
+    "invent training or fine-tuning details. Keep these answers brief and natural."
+)
 
 
 def parse_simulated_failures(value: str | None) -> dict[str, int]:
@@ -138,7 +148,11 @@ def create_app(settings: Settings | None = None, gateway: Gateway | None = None)
             else db.get_system_prompt(payload.session_id) or app_settings.default_system_prompt
         )
         history = db.get_messages(payload.session_id)
-        llm_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        # Apply app attribution to new and resumed sessions, including custom
+        # instructions. Persist only the user's editable instructions as before.
+        llm_messages: list[dict[str, str]] = [
+            {"role": "system", "content": f"{system_prompt}\n\n{APP_IDENTITY}"}
+        ]
         llm_messages.extend(
             {"role": str(message["role"]), "content": str(message["content"])}
             for message in history

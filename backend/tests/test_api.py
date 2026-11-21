@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.llm import LLMResult, ProviderKey
-from app.main import create_app
+from app.main import APP_IDENTITY, create_app
 
 
 @dataclass
@@ -170,11 +170,11 @@ def test_system_prompt_persists_and_sessions_are_isolated(tmp_path):
     with client:
         client.post("/chat", json={"session_id": "a", "message": "  hello  ", "system_prompt": "Use examples."})
         client.post("/chat", json={"session_id": "a", "message": "again"})
-        assert gateway.seen[-1][1][0]["content"] == "Use examples."
+        assert gateway.seen[-1][1][0]["content"] == f"Use examples.\n\n{APP_IDENTITY}"
         assert gateway.seen[-1][1][1]["content"] == "hello"
         client.post("/chat", json={"session_id": "b", "message": "new"})
         assert len(gateway.seen[-1][1]) == 2
-        assert gateway.seen[-1][1][0]["content"] == "Be useful."
+        assert gateway.seen[-1][1][0]["content"] == f"Be useful.\n\n{APP_IDENTITY}"
 
 
 @pytest.mark.parametrize("code", [408, 429, 500, 502, 503])
@@ -223,6 +223,6 @@ def test_explicit_empty_instructions_reset_to_default(tmp_path):
     with client:
         client.post("/chat", json={"session_id": "reset", "message": "first", "system_prompt": "Use short answers."})
         client.post("/chat", json={"session_id": "reset", "message": "second"})
-        assert gateway.seen[-1][1][0]["content"] == "Use short answers."
+        assert gateway.seen[-1][1][0]["content"] == f"Use short answers.\n\n{APP_IDENTITY}"
         client.post("/chat", json={"session_id": "reset", "message": "third", "system_prompt": ""})
-        assert gateway.seen[-1][1][0]["content"] == "Be useful."
+        assert gateway.seen[-1][1][0]["content"] == f"Be useful.\n\n{APP_IDENTITY}"
