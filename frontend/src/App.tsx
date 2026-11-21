@@ -57,6 +57,7 @@ export default function App() {
   const busyRef = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const latestReply = useRef<HTMLElement>(null);
   const settings = useRef<HTMLDialogElement>(null);
   const busy = isSending || isLoading;
   const answers = messages.filter((item) => item.role === "assistant" && item.metadata);
@@ -81,7 +82,14 @@ export default function App() {
     const timer = window.setInterval(check, 30000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, []);
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, isSending]);
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!isSending && lastMessage && lastMessage.role !== "user") {
+      latestReply.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages, isSending]);
   useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = "auto";
@@ -132,7 +140,7 @@ export default function App() {
       setSavedChats((current) => [{ id: sessionId, title: (title === "New conversation" ? text : title).slice(0, 70), updatedAt: new Date().toISOString() }, ...current.filter((chat) => chat.id !== sessionId)].slice(0, 30));
     } catch (error) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "error", content: error instanceof Error ? error.message : "Unable to send this message.", retryText: text }]);
-    } finally { busyRef.current = false; setIsSending(false); textarea.current?.focus(); }
+    } finally { busyRef.current = false; setIsSending(false); textarea.current?.focus({ preventScroll: true }); }
   }
   function onMessageKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
@@ -181,7 +189,7 @@ export default function App() {
           <div className="welcome-note"><Icon name="shield" size={14} /><span>Conversation memory. Faster repeat answers. Automatic backup.</span></div>
         </div> : <div className="message-list" aria-live="polite">
           <div className="conversation-date"><span />Your conversation<span /></div>
-          {messages.map((item) => <article key={item.id} className={`message ${item.role}`} {...(item.role === "assistant" ? { "data-testid": "assistant-message" } : {})}>
+          {messages.map((item, index) => <article key={item.id} ref={index === messages.length - 1 && item.role !== "user" ? latestReply : undefined} className={`message ${item.role}`} {...(item.role === "assistant" ? { "data-testid": "assistant-message" } : {})}>
             <span className={`message-avatar ${item.role}`}><Icon name={item.role === "user" ? "user" : item.role === "error" ? "alert" : "layers"} size={18} /></span>
             <div className="message-body"><div className="message-heading"><strong>{item.role === "user" ? "You" : item.role === "assistant" ? "Lyftr" : "Couldn’t send this message"}</strong>{item.role === "assistant" && <span className="ai-label">AI</span>}{item.role === "assistant" && <button className={`copy-button ${copiedId === item.id ? "copied" : ""}`} aria-label={copiedId === item.id ? "Reply copied" : "Copy reply"} onClick={() => void copyReply(item)}><Icon name={copiedId === item.id ? "check" : "copy"} size={14} /><span>{copiedId === item.id ? "Copied" : "Copy"}</span></button>}</div>
               {item.role === "assistant" ? <div className="markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{ a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>, img: ({ alt }) => <span>[Image: {alt ?? "image"}]</span> }}>{item.content}</Markdown></div> : <p className="message-text">{item.content}</p>}

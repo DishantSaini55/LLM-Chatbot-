@@ -4,15 +4,15 @@ An end-to-end React + FastAPI chat application built for the Lyftr full-stack as
 
 ## Live URLs
 
-Frontend: **not deployed yet**
+Frontend: [Open Lyftr Chat](https://llm-chatbot-production-9dce5b1b.up.railway.app)
 
-Backend: **not deployed yet**
+Backend: [API health](https://ample-empathy-production-7cb2ef33.up.railway.app/health)
 
-Before submitting, replace those two placeholders with public URLs that do not require a login.
+Public deployment verified on November 21, 2026: frontend availability, backend health, CORS, input validation, live inference, response caching, multi-turn memory, backup-key failover, and all-key failure handling passed. Persistence across a hosted backend restart remains to be verified.
 
-### Free-only deployment preparation
+### Free-only deployment
 
-The selected route is Railway's Free plan. No cloud resources have been created yet. It offers limited monthly usage credits and a small persistent volume, rather than unlimited always-on hosting. See the current [Free plan limits](https://docs.railway.com/pricing/free-plan), including trial expiry and volume-retention rules. Do not upgrade to Hobby or add a paid subscription for this deployment. Model-provider usage is separate from hosting.
+The application is deployed on Railway's Free plan. It offers limited monthly usage credits and a small persistent volume, rather than unlimited always-on hosting. Services can sleep when idle, causing an initial wake-up delay, and stop when the monthly usage allowance is exhausted. See the current [Free plan limits](https://docs.railway.com/pricing/free-plan), including trial expiry and volume-retention rules. Do not upgrade to Hobby or add a paid subscription for this deployment. Model-provider usage is separate from hosting.
 
 Use one project with two services from `DishantSaini55/LLM-Chatbot-`, branch `main`:
 
